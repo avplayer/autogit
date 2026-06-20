@@ -299,11 +299,13 @@ if (ENABLE_USE_OPENSSL)
 		)
 
 		# 设置 find_package(OpenSSL) 所需的变量，使依赖 OpenSSL 的第三方库
-		# （如 libgit2）能正确找到我们自行构建的 OpenSSL，而不需要系统安装
+		# （如 libgit2）能正确找到我们自行构建的 OpenSSL，而不需要系统安装。
+		# 必须使用 CACHE INTERNAL 确保在子目录作用域中仍然有效，因为
+		# find_path/find_library 仅检查 CACHE 变量而忽略普通变量。
 		set(OPENSSL_FOUND TRUE)
-		set(OPENSSL_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/openssl/include)
-		set(OPENSSL_CRYPTO_LIBRARY crypto)
-		set(OPENSSL_SSL_LIBRARY ssl)
+		set(OPENSSL_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/openssl/include CACHE INTERNAL "")
+		set(OPENSSL_CRYPTO_LIBRARY crypto CACHE INTERNAL "")
+		set(OPENSSL_SSL_LIBRARY ssl CACHE INTERNAL "")
 		set(OPENSSL_LIBRARIES crypto;ssl)
 	endif()
 	include_directories(${OPENSSL_INCLUDE_DIR})
