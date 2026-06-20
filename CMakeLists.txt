@@ -374,6 +374,8 @@ else()
 	set(LIBSSH2_LIBRARIES libssh2_static)
 	set_target_properties(libssh2_static PROPERTIES FOLDER "third_party")
 	set_target_properties(libssh2_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+	# macOS 上 memset_s 需要 __STDC_WANT_LIB_EXT1__ 才能可见
+	target_compile_definitions(libssh2_static PUBLIC __STDC_WANT_LIB_EXT1__)
 	set(LIBSSH2_INCLUDE_DIRS
 		${CMAKE_CURRENT_SOURCE_DIR}/third_party/libssh2/include
 		${CMAKE_BINARY_DIR}/third_party/libssh2/src
@@ -389,6 +391,7 @@ add_subdirectory(third_party/fmt)
 
 set(BUILD_SHARED_LIBS OFF)
 set(BUILD_TESTS OFF)
+set(BUILD_CLI OFF)
 set(USE_NSEC OFF)
 set(USE_HTTPS ON)
 set(USE_SSH ON)
@@ -408,15 +411,29 @@ add_definitions(-DGIT_HTTPS)
 include_directories(${ZLIB_INCLUDE_DIR})
 include_directories(${LIBSSH2_INCLUDE_DIRS})
 
+# 取消设置这些变量，避免与 libgit2 内部的 FindPkgLibraries.cmake
+# 冲突。libgit2 使用 pkg_check_modules 检测 libssh2，但上层作用域
+# 的 LIBSSH2_LIBRARIES=libssh2_static 变量会干扰 CMake 变量查找
+# 链，导致 find_library 找不到名为 libssh2_static 的物理库文件。
+unset(LIBSSH2_LIBRARIES)
+unset(LIBSSH2_FOUND)
+
 add_subdirectory(third_party/libgit2 EXCLUDE_FROM_ALL)
-set(LIBGIT2_LIBRARIES pcre http-parser util libgit2)
-set(GIT2_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libgit2/include)
-set_target_properties(libgit2 PROPERTIES FOLDER "third_party/")
-if (TARGET pcre)
-	set_target_properties(pcre PROPERTIES FOLDER "third_party/")
+
+# macOS 上 getentropy 在 <sys/random.h> 而非 <unistd.h> 中声明，
+# CMake 的 CheckFunctionExists 检测到链接可用但编译时因无声明而失败。
+# 为 libgit2 的 util 目标强制包含正确头文件。
+if (APPLE)
+	target_compile_options(util PRIVATE -include sys/random.h)
 endif()
-set_target_properties(http-parser PROPERTIES FOLDER "third_party/")
-set_target_properties(util PROPERTIES FOLDER "third_party/")
+
+# 恢复变量，供上层 link_libraries() 使用
+set(LIBSSH2_LIBRARIES libssh2_static)
+set(LIBSSH2_FOUND ON)
+
+set(LIBGIT2_LIBRARIES libgit2package)
+set(GIT2_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libgit2/include)
+set_target_properties(libgit2package PROPERTIES FOLDER "third_party/")
 
 ################################################################################
 
