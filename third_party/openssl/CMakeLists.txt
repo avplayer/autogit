@@ -1101,6 +1101,10 @@ if (APPLE)
     target_compile_definitions(crypto PRIVATE -DASYNC_NULL)
 endif()
 
+if(UNIX AND NOT APPLE AND NOT MSVC)
+    target_compile_definitions(crypto PRIVATE -D_GNU_SOURCE)
+endif()
+
 target_link_libraries(crypto ${CMAKE_THREAD_LIBS_INIT})
 
 if(NOT MSVC AND NOT APPLE)

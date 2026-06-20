@@ -405,6 +405,8 @@ else()
 	set_target_properties(libssh2_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 	# macOS 上 memset_s 需要 __STDC_WANT_LIB_EXT1__ 才能可见
 	target_compile_definitions(libssh2_static PUBLIC __STDC_WANT_LIB_EXT1__)
+	# 在 C11 严格模式下，u_char/u_int 等 POSIX 类型需要 _GNU_SOURCE
+	target_compile_definitions(libssh2_static PUBLIC _GNU_SOURCE)
 	set(LIBSSH2_INCLUDE_DIRS
 		${CMAKE_CURRENT_SOURCE_DIR}/third_party/libssh2/include
 		${CMAKE_BINARY_DIR}/third_party/libssh2/src

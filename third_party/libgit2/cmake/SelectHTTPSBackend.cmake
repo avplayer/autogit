@@ -59,7 +59,15 @@ if(USE_HTTPS)
 
 		set(GIT_OPENSSL 1)
 		list(APPEND LIBGIT2_SYSTEM_INCLUDES ${OPENSSL_INCLUDE_DIR})
-		list(APPEND LIBGIT2_SYSTEM_LIBS ${OPENSSL_LIBRARIES})
+		# 将 OpenSSL 库引用转换为实际文件路径，避免 install(EXPORT)
+		# 因 ssl/crypto 目标不在导出集合中而报错。
+		foreach(_lib ${OPENSSL_LIBRARIES})
+			if(TARGET "${_lib}")
+				list(APPEND LIBGIT2_SYSTEM_LIBS "$<TARGET_FILE:${_lib}>")
+			else()
+				list(APPEND LIBGIT2_SYSTEM_LIBS ${_lib})
+			endif()
+		endforeach()
 		# Static OpenSSL (lib crypto.a) requires libdl, include it explicitly
 		if(LINK_WITH_STATIC_LIBRARIES STREQUAL ON)
 			list(APPEND LIBGIT2_SYSTEM_LIBS ${CMAKE_DL_LIBS})
