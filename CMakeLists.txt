@@ -306,7 +306,9 @@ if (ENABLE_USE_OPENSSL)
 		set(OPENSSL_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/openssl/include CACHE INTERNAL "")
 		set(OPENSSL_CRYPTO_LIBRARY crypto CACHE INTERNAL "")
 		set(OPENSSL_SSL_LIBRARY ssl CACHE INTERNAL "")
-		set(OPENSSL_LIBRARIES crypto;ssl)
+		# 使用 $<TARGET_FILE> 生成器表达式获取库文件路径而非 CMake 目标名，
+		# 避免 libgit2 的 install(EXPORT) 因 ssl/crypto 目标不在导出集合中而报错
+		set(OPENSSL_LIBRARIES "$<TARGET_FILE:ssl>" "$<TARGET_FILE:crypto>")
 	endif()
 	include_directories(${OPENSSL_INCLUDE_DIR})
 	message(STATUS "Using openssl...")
@@ -445,7 +447,9 @@ set(REGEX_BACKEND "builtin")
 set(ZLIB_FOUND TRUE)
 set(ZLIB_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib CACHE INTERNAL "")
 set(ZLIB_LIBRARY zlibstatic CACHE INTERNAL "")
-set(ZLIB_LIBRARIES zlibstatic)
+# 使用 $<TARGET_FILE> 生成器表达式获取库文件路径而非 CMake 目标名，
+# 避免 libgit2 的 install(EXPORT) 因 zlibstatic 目标不在导出集合中而报错
+set(ZLIB_LIBRARIES "$<TARGET_FILE:zlibstatic>")
 
 add_definitions(-DGIT_OPENSSL -DGIT_SSH -DGIT_HTTPS)
 
