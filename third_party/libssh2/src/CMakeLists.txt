@@ -152,6 +152,8 @@ add_library(${LIB_NAME} ALIAS ${LIB_SELECTED})
 
 ## Installation
 
+if(NOT LIBSSH2_SKIP_INSTALL)
+
 install(FILES
   "${PROJECT_SOURCE_DIR}/include/libssh2.h"
   "${PROJECT_SOURCE_DIR}/include/libssh2_publickey.h"
@@ -199,6 +201,8 @@ install(
     "${PROJECT_SOURCE_DIR}/cmake/FindMbedTLS.cmake"
     "${PROJECT_SOURCE_DIR}/cmake/FindWolfSSL.cmake"
   DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+
+endif()
 
 # Calculate variables for pkg-config
 set(LIBSSH2_PC_LIBS_PRIVATE "")

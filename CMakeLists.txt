@@ -246,6 +246,12 @@ if (ENABLE_USE_OPENSSL)
 		endif()
 		add_library(OpenSSL::SSL ALIAS ssl)
 		add_library(OpenSSL::Crypto ALIAS crypto)
+
+		# 导出 OpenSSL 目标，使依赖它们的 libssh2 可以成功导出自身目标
+		export(TARGETS crypto ssl
+			NAMESPACE ""
+			FILE "${CMAKE_BINARY_DIR}/openssl-targets.cmake"
+		)
 	endif()
 	include_directories(${OPENSSL_INCLUDE_DIR})
 	message(STATUS "Using openssl...")
@@ -352,6 +358,20 @@ endif()
 
 include_directories(${ZLIB_INCLUDE_DIRS})
 
+# 导出 zlibstatic 目标，使依赖它的 libssh2 可以成功导出自身目标
+export(TARGETS zlibstatic
+	NAMESPACE ""
+	FILE "${CMAKE_BINARY_DIR}/zlib-targets.cmake")
+
+# 临时保存并清除 ZLIB 变量，防止 libssh2 的 OpenSSL 后端检测
+# 通过父作用域找到 zlibstatic 并将其添加为不必要的依赖
+set(_SAVED_ZLIB_FOUND ${ZLIB_FOUND})
+set(_SAVED_ZLIB_LIBRARIES ${ZLIB_LIBRARIES})
+set(_SAVED_ZLIB_INCLUDE_DIRS ${ZLIB_INCLUDE_DIRS})
+unset(ZLIB_FOUND)
+unset(ZLIB_LIBRARIES)
+unset(ZLIB_INCLUDE_DIRS)
+
 ################################################################################
 
 if (ENABLE_SYSTEM_LIBSSH2)
@@ -369,6 +389,7 @@ else()
 	set(PICKY_COMPILER OFF)
 	set(RUN_DOCKER_TESTS OFF)
 	set(RUN_SSHD_TESTS OFF)
+	set(LIBSSH2_SKIP_INSTALL ON)
 
 	add_subdirectory(third_party/libssh2)
 	set(LIBSSH2_LIBRARIES libssh2_static)
@@ -381,6 +402,11 @@ else()
 		${CMAKE_BINARY_DIR}/third_party/libssh2/src
 	)
 	set(LIBSSH2_FOUND ON)
+
+	# 恢复 ZLIB 变量，供后续代码使用
+	set(ZLIB_FOUND ${_SAVED_ZLIB_FOUND})
+	set(ZLIB_LIBRARIES ${_SAVED_ZLIB_LIBRARIES})
+	set(ZLIB_INCLUDE_DIRS ${_SAVED_ZLIB_INCLUDE_DIRS})
 endif()
 
 ################################################################################
