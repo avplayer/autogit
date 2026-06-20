@@ -297,6 +297,14 @@ if (ENABLE_USE_OPENSSL)
 			NAMESPACE ""
 			FILE "${CMAKE_BINARY_DIR}/openssl-targets.cmake"
 		)
+
+		# 设置 find_package(OpenSSL) 所需的变量，使依赖 OpenSSL 的第三方库
+		# （如 libgit2）能正确找到我们自行构建的 OpenSSL，而不需要系统安装
+		set(OPENSSL_FOUND TRUE)
+		set(OPENSSL_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/openssl/include)
+		set(OPENSSL_CRYPTO_LIBRARY crypto)
+		set(OPENSSL_SSL_LIBRARY ssl)
+		set(OPENSSL_LIBRARIES crypto;ssl)
 	endif()
 	include_directories(${OPENSSL_INCLUDE_DIR})
 	message(STATUS "Using openssl...")
@@ -429,6 +437,13 @@ set(GIT_SSH ON)
 set(USE_SHA1 "OpenSSL")
 set(USE_SHA256 "OpenSSL")
 set(REGEX_BACKEND "builtin")
+
+# 设置 find_package(ZLIB) 所需的变量，使 libgit2 能正确找到我们自行构建的 zlib。
+# 使用 CACHE INTERNAL 确保在 libgit2 的子目录作用域中仍然有效。
+set(ZLIB_FOUND TRUE)
+set(ZLIB_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib CACHE INTERNAL "")
+set(ZLIB_LIBRARY zlibstatic CACHE INTERNAL "")
+set(ZLIB_LIBRARIES zlibstatic)
 
 add_definitions(-DGIT_OPENSSL -DGIT_SSH -DGIT_HTTPS)
 
