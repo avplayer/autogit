@@ -2,6 +2,7 @@
 #include "refs.h"
 #include "vector.h"
 #include "odb.h"
+#include "repository.h"
 
 static git_repository *repo;
 
@@ -95,7 +96,7 @@ static void assert_all_refnames_match(const char **expected, git_vector *names)
 	}
 	cl_assert(expected[i] == NULL);
 
-	git_vector_free(names);
+	git_vector_dispose(names);
 }
 
 void test_refs_iterator__list(void)
@@ -221,7 +222,7 @@ void test_refs_iterator__foreach_name(void)
 		git__free(name);
 	}
 
-	git_vector_free(&output);
+	git_vector_dispose(&output);
 }
 
 static int refs_foreach_name_cancel_cb(const char *name, void *payload)

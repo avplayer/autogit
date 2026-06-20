@@ -15,7 +15,7 @@
 
 /**
  * @file git2/diff.h
- * @brief Git tree and file differencing routines.
+ * @brief Indicate the differences between two versions of the repository
  * @ingroup Git
  * @{
  */
@@ -342,6 +342,12 @@ typedef struct {
  *		diff process continues.
  * - returns 0, the delta is inserted into the diff, and the diff process
  *		continues.
+ *
+ * @param diff_so_far the diff structure as it currently exists
+ * @param delta_to_add the delta that is to be added
+ * @param matched_pathspec the pathspec
+ * @param payload the user-specified callback payload
+ * @return 0 on success, 1 to skip this delta, or an error code
  */
 typedef int GIT_CALLBACK(git_diff_notify_cb)(
 	const git_diff *diff_so_far,
@@ -357,7 +363,8 @@ typedef int GIT_CALLBACK(git_diff_notify_cb)(
  * @param diff_so_far The diff being generated.
  * @param old_path The path to the old file or NULL.
  * @param new_path The path to the new file or NULL.
- * @return Non-zero to abort the diff.
+ * @param payload the user-specified callback payload
+ * @return 0 or an error code
  */
 typedef int GIT_CALLBACK(git_diff_progress_cb)(
 	const git_diff *diff_so_far,
@@ -422,6 +429,22 @@ typedef struct {
 	uint32_t    interhunk_lines;
 
 	/**
+	 * The object ID type to emit in diffs; this is used by functions
+	 * that operate without a repository - namely `git_diff_buffers`,
+	 * or `git_diff_blobs` and `git_diff_blob_to_buffer` when one blob
+	 * is `NULL`.
+	 *
+	 * This may be omitted (set to `0`). If a repository is available,
+	 * the object ID format of the repository will be used. If no
+	 * repository is available then the default is `GIT_OID_SHA`.
+	 *
+	 * If this is specified and a repository is available, then the
+	 * specified `oid_type` must match the repository's object ID
+	 * format.
+	 */
+	git_oid_t   oid_type;
+
+	/**
 	 * The abbreviation length to use when formatting object ids.
 	 * Defaults to the value of 'core.abbrev' from the config, or 7 if unset.
 	 */
@@ -447,10 +470,10 @@ typedef struct {
 	const char *new_prefix;
 } git_diff_options;
 
-/* The current version of the diff options structure */
+/** The current version of the diff options structure */
 #define GIT_DIFF_OPTIONS_VERSION 1
 
-/* Stack initializer for diff options.  Alternatively use
+/** Stack initializer for diff options.  Alternatively use
  * `git_diff_options_init` programmatic initialization.
  */
 #define GIT_DIFF_OPTIONS_INIT \
@@ -476,12 +499,14 @@ GIT_EXTERN(int) git_diff_options_init(
  * @param delta A pointer to the delta data for the file
  * @param progress Goes from 0 to 1 over the diff
  * @param payload User-specified pointer from foreach function
+ * @return 0 or an error code
  */
 typedef int GIT_CALLBACK(git_diff_file_cb)(
 	const git_diff_delta *delta,
 	float progress,
 	void *payload);
 
+/** Maximum size of the hunk header */
 #define GIT_DIFF_HUNK_HEADER_SIZE	128
 
 /**
@@ -542,6 +567,11 @@ typedef struct {
 /**
  * When iterating over a diff, callback that will be made for
  * binary content within the diff.
+ *
+ * @param delta the delta
+ * @param binary the binary content
+ * @param payload the user-specified callback payload
+ * @return 0 or an error code
  */
 typedef int GIT_CALLBACK(git_diff_binary_cb)(
 	const git_diff_delta *delta,
@@ -568,6 +598,11 @@ typedef struct {
 
 /**
  * When iterating over a diff, callback that will be made per hunk.
+ *
+ * @param delta the delta
+ * @param hunk the hunk
+ * @param payload the user-specified callback payload
+ * @return 0 or an error code
  */
 typedef int GIT_CALLBACK(git_diff_hunk_cb)(
 	const git_diff_delta *delta,
@@ -629,6 +664,12 @@ typedef struct {
  * When printing a diff, callback that will be made to output each line
  * of text.  This uses some extra GIT_DIFF_LINE_... constants for output
  * of lines of file and hunk headers.
+ *
+ * @param delta the delta that contains the line
+ * @param hunk the hunk that contains the line
+ * @param line the line in the diff
+ * @param payload the user-specified callback payload
+ * @return 0 or an error code
  */
 typedef int GIT_CALLBACK(git_diff_line_cb)(
 	const git_diff_delta *delta, /**< delta that contains this data */
@@ -786,7 +827,10 @@ typedef struct {
 	git_diff_similarity_metric *metric;
 } git_diff_find_options;
 
+/** Current version for the `git_diff_find_options` structure */
 #define GIT_DIFF_FIND_OPTIONS_VERSION 1
+
+/** Static constructor for `git_diff_find_options` */
 #define GIT_DIFF_FIND_OPTIONS_INIT {GIT_DIFF_FIND_OPTIONS_VERSION}
 
 /**
@@ -1153,9 +1197,8 @@ GIT_EXTERN(int) git_diff_to_buf(
 
 /**@}*/
 
-
 /*
- * Misc
+ * Low-level file comparison, invoking callbacks per difference.
  */
 
 /**
@@ -1271,6 +1314,25 @@ GIT_EXTERN(int) git_diff_buffers(
 	git_diff_line_cb line_cb,
 	void *payload);
 
+/* Patch file parsing. */
+
+/**
+ * Options for parsing a diff / patch file.
+ */
+typedef struct {
+	unsigned int version;
+	git_oid_t oid_type;
+} git_diff_parse_options;
+
+/** The current version of the diff parse options structure */
+#define GIT_DIFF_PARSE_OPTIONS_VERSION 1
+
+/** Stack initializer for diff parse options.  Alternatively use
+ * `git_diff_parse_options_init` programmatic initialization.
+ */
+#define GIT_DIFF_PARSE_OPTIONS_INIT \
+	{ GIT_DIFF_PARSE_OPTIONS_VERSION, GIT_OID_DEFAULT }
+
 /**
  * Read the contents of a git patch file into a `git_diff` object.
  *
@@ -1293,7 +1355,11 @@ GIT_EXTERN(int) git_diff_buffers(
 GIT_EXTERN(int) git_diff_from_buffer(
 	git_diff **out,
 	const char *content,
-	size_t content_len);
+	size_t content_len
+#ifdef GIT_EXPERIMENTAL_SHA256
+	, git_diff_parse_options *opts
+#endif
+	);
 
 /**
  * This is an opaque structure which is allocated by `git_diff_get_stats`.
@@ -1394,7 +1460,10 @@ typedef struct git_diff_patchid_options {
 	unsigned int version;
 } git_diff_patchid_options;
 
+/** Current version for the `git_diff_patchid_options` structure */
 #define GIT_DIFF_PATCHID_OPTIONS_VERSION 1
+
+/** Static constructor for `git_diff_patchid_options` */
 #define GIT_DIFF_PATCHID_OPTIONS_INIT { GIT_DIFF_PATCHID_OPTIONS_VERSION }
 
 /**
@@ -1432,8 +1501,7 @@ GIT_EXTERN(int) git_diff_patchid_options_init(
  */
 GIT_EXTERN(int) git_diff_patchid(git_oid *out, git_diff *diff, git_diff_patchid_options *opts);
 
-GIT_END_DECL
-
 /** @} */
+GIT_END_DECL
 
 #endif

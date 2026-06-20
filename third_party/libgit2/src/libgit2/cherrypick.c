@@ -73,8 +73,7 @@ static int cherrypick_normalize_opts(
 	const char *their_label)
 {
 	int error = 0;
-	unsigned int default_checkout_strategy = GIT_CHECKOUT_SAFE |
-		GIT_CHECKOUT_ALLOW_CONFLICTS;
+	unsigned int default_checkout_strategy = GIT_CHECKOUT_ALLOW_CONFLICTS;
 
 	GIT_UNUSED(repo);
 
@@ -106,10 +105,10 @@ static int cherrypick_state_cleanup(git_repository *repo)
 
 static int cherrypick_seterr(git_commit *commit, const char *fmt)
 {
-	char commit_oidstr[GIT_OID_SHA1_HEXSIZE + 1];
+	char commit_oidstr[GIT_OID_MAX_HEXSIZE + 1];
 
 	git_error_set(GIT_ERROR_CHERRYPICK, fmt,
-		git_oid_tostr(commit_oidstr, GIT_OID_SHA1_HEXSIZE + 1, git_commit_id(commit)));
+		git_oid_tostr(commit_oidstr, GIT_OID_MAX_HEXSIZE + 1, git_commit_id(commit)));
 
 	return -1;
 }
@@ -173,7 +172,7 @@ int git_cherrypick(
 	git_cherrypick_options opts;
 	git_reference *our_ref = NULL;
 	git_commit *our_commit = NULL;
-	char commit_oidstr[GIT_OID_SHA1_HEXSIZE + 1];
+	char commit_oidstr[GIT_OID_MAX_HEXSIZE + 1];
 	const char *commit_msg, *commit_summary;
 	git_str their_label = GIT_STR_INIT;
 	git_index *index = NULL;

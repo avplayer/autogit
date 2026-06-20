@@ -9,7 +9,7 @@
 
 #include "git2/oid.h"
 #include "repository.h"
-#include "threadstate.h"
+#include "runtime.h"
 #include <string.h>
 #include <limits.h>
 
@@ -21,6 +21,8 @@ const git_oid git_oid__empty_tree_sha1 =
 	GIT_OID_INIT(GIT_OID_SHA1,
 	  { 0x4b, 0x82, 0x5d, 0xc6, 0x42, 0xcb, 0x6e, 0xb9, 0xa0, 0x60,
 	    0xe5, 0x4b, 0xf8, 0xd6, 0x92, 0x88, 0xfb, 0xee, 0x49, 0x04 });
+
+static const unsigned char git_oid_zero[GIT_OID_MAX_SIZE] = {0};
 
 static int oid_error_invalid(const char *msg)
 {
@@ -153,9 +155,42 @@ int git_oid_pathfmt(char *str, const git_oid *oid)
 	return 0;
 }
 
+static git_tlsdata_key thread_str_key;
+
+static void GIT_SYSTEM_CALL thread_str_free(void *s)
+{
+	char *str = (char *)s;
+	git__free(str);
+}
+
+static void thread_str_global_shutdown(void)
+{
+	char *str = git_tlsdata_get(thread_str_key);
+	git_tlsdata_set(thread_str_key, NULL);
+
+	git__free(str);
+	git_tlsdata_dispose(thread_str_key);
+}
+
+int git_oid_global_init(void)
+{
+	if (git_tlsdata_init(&thread_str_key, thread_str_free) != 0)
+		return -1;
+
+	return git_runtime_shutdown_register(thread_str_global_shutdown);
+}
+
 char *git_oid_tostr_s(const git_oid *oid)
 {
-	char *str = GIT_THREADSTATE->oid_fmt;
+	char *str;
+
+	if ((str = git_tlsdata_get(thread_str_key)) == NULL) {
+		if ((str = git__malloc(GIT_OID_MAX_HEXSIZE + 1)) == NULL)
+			return NULL;
+
+		git_tlsdata_set(thread_str_key, str);
+	}
+
 	git_oid_nfmt(str, git_oid_hexsize(git_oid_type(oid)) + 1, oid);
 	return str;
 }
@@ -285,7 +320,7 @@ int git_oid_streq(const git_oid *oid_a, const char *str)
 int git_oid_is_zero(const git_oid *oid_a)
 {
 	const unsigned char *a = oid_a->id;
-	size_t size = git_oid_size(git_oid_type(oid_a)), i;
+	size_t size = git_oid_size(git_oid_type(oid_a));
 
 #ifdef GIT_EXPERIMENTAL_SHA256
 	if (!oid_a->type)
@@ -294,10 +329,7 @@ int git_oid_is_zero(const git_oid *oid_a)
 		return 0;
 #endif
 
-	for (i = 0; i < size; ++i, ++a)
-		if (*a != 0)
-			return 0;
-	return 1;
+	return git_oid_raw_cmp(a, git_oid_zero, size) == 0 ? 1 : 0;
 }
 
 #ifndef GIT_DEPRECATE_HARD

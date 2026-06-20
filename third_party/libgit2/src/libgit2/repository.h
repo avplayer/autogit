@@ -24,6 +24,7 @@
 #include "attrcache.h"
 #include "submodule.h"
 #include "diff_driver.h"
+#include "grafts.h"
 
 #define DOT_GIT ".git"
 #define GIT_DIR DOT_GIT "/"
@@ -101,6 +102,8 @@ typedef enum {
 	/* core.trustctime */
 	GIT_TRUSTCTIME_DEFAULT = GIT_CONFIGMAP_TRUE,
 	/* core.abbrev */
+	GIT_ABBREV_FALSE = GIT_OID_MAX_HEXSIZE,
+	GIT_ABBREV_MINIMUM = 4,
 	GIT_ABBREV_DEFAULT = 7,
 	/* core.precomposeunicode */
 	GIT_PRECOMPOSE_DEFAULT = GIT_CONFIGMAP_FALSE,
@@ -151,16 +154,20 @@ struct git_repository {
 
 	git_array_t(git_str) reserved_names;
 
-	unsigned is_bare:1;
-	unsigned is_worktree:1;
+	unsigned use_env:1,
+	         is_bare:1,
+	         is_worktree:1;
 	git_oid_t oid_type;
 
 	unsigned int lru_counter;
 
+	git_grafts *grafts;
+	git_grafts *shallow_grafts;
+
 	git_atomic32 attr_session_key;
 
 	intptr_t configmap_cache[GIT_CONFIGMAP_CACHE_MAX];
-	git_strmap *submodule_cache;
+	git_submodule_cache *submodule_cache;
 };
 
 GIT_INLINE(git_attr_cache *) git_repository_attr_cache(git_repository *repo)
@@ -168,6 +175,7 @@ GIT_INLINE(git_attr_cache *) git_repository_attr_cache(git_repository *repo)
 	return repo->attrcache;
 }
 
+int git_repository_head_commit(git_commit **commit, git_repository *repo);
 int git_repository_head_tree(git_tree **tree, git_repository *repo);
 int git_repository_create_head(const char *git_dir, const char *ref_name);
 
@@ -188,6 +196,8 @@ int git_repository_config__weakptr(git_config **out, git_repository *repo);
 int git_repository_odb__weakptr(git_odb **out, git_repository *repo);
 int git_repository_refdb__weakptr(git_refdb **out, git_repository *repo);
 int git_repository_index__weakptr(git_index **out, git_repository *repo);
+int git_repository_grafts__weakptr(git_grafts **out, git_repository *repo);
+int git_repository_shallow_grafts__weakptr(git_grafts **out, git_repository *repo);
 
 /*
  * Configuration map cache
@@ -197,6 +207,9 @@ int git_repository_index__weakptr(git_index **out, git_repository *repo);
  */
 int git_repository__configmap_lookup(int *out, git_repository *repo, git_configmap_item item);
 void git_repository__configmap_lookup_cache_clear(git_repository *repo);
+
+/** Return the length that object names will be abbreviated to. */
+int git_repository__abbrev_length(int *out, git_repository *repo);
 
 int git_repository__item_path(git_str *out, const git_repository *repo, git_repository_item_t item);
 
@@ -239,6 +252,9 @@ extern size_t git_repository__reserved_names_posix_len;
 bool git_repository__reserved_names(
 	git_str **out, size_t *outlen, git_repository *repo, bool include_ntfs);
 
+int git_repository__shallow_roots(git_oid **out, size_t *out_len, git_repository *repo);
+int git_repository__shallow_roots_write(git_repository *repo, git_oidarray *roots);
+
 /*
  * The default branch for the repository; the `init.defaultBranch`
  * configuration option, if set, or `master` if it is not.
@@ -264,5 +280,8 @@ void git_repository__free_extensions(void);
 int git_repository__set_objectformat(
 	git_repository *repo,
 	git_oid_t oid_type);
+
+/* SHA256-aware internal functions */
+int git_repository__new(git_repository **out, git_oid_t oid_type);
 
 #endif

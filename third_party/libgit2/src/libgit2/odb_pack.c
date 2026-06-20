@@ -309,10 +309,16 @@ static int pack_entry_find_prefix(
 {
 	int error;
 	size_t i;
-	git_oid found_full_oid = GIT_OID_SHA1_ZERO;
+	git_oid found_full_oid;
 	bool found = false;
 	struct git_pack_file *last_found = backend->last_found, *p;
 	git_midx_entry midx_entry;
+
+#ifdef GIT_EXPERIMENTAL_SHA256
+	git_oid_clear(&found_full_oid, short_oid->type);
+#else
+	git_oid_clear(&found_full_oid, GIT_OID_SHA1);
+#endif
 
 	if (backend->midx) {
 		error = git_midx_entry_find(&midx_entry, backend->midx, short_oid, len);
@@ -473,7 +479,9 @@ static int refresh_multi_pack_index(struct pack_backend *backend)
 		}
 	}
 
-	error = git_midx_open(&backend->midx, git_str_cstr(&midx_path));
+	error = git_midx_open(&backend->midx, git_str_cstr(&midx_path),
+		backend->opts.oid_type);
+
 	git_str_dispose(&midx_path);
 	if (error < 0)
 		return error;
@@ -735,10 +743,10 @@ static int pack_backend__writepack(struct git_odb_writepack **out,
 
 #ifdef GIT_EXPERIMENTAL_SHA256
 	opts.odb = odb;
+	opts.oid_type = backend->opts.oid_type;
 
 	error = git_indexer_new(&writepack->indexer,
 		backend->pack_folder,
-		backend->opts.oid_type,
 		&opts);
 #else
 	error = git_indexer_new(&writepack->indexer,
@@ -788,11 +796,24 @@ static int pack_backend__writemidx(git_odb_backend *_backend)
 	size_t i;
 	int error = 0;
 
+#ifdef GIT_EXPERIMENTAL_SHA256
+	git_midx_writer_options midx_opts = GIT_MIDX_WRITER_OPTIONS_INIT;
+#endif
+
 	GIT_ASSERT_ARG(_backend);
 
 	backend = (struct pack_backend *)_backend;
 
-	error = git_midx_writer_new(&w, backend->pack_folder);
+#ifdef GIT_EXPERIMENTAL_SHA256
+	midx_opts.oid_type = backend->opts.oid_type;
+#endif
+
+	error = git_midx_writer_new(&w, backend->pack_folder
+#ifdef GIT_EXPERIMENTAL_SHA256
+		, &midx_opts
+#endif
+		);
+
 	if (error < 0)
 		return error;
 
@@ -850,8 +871,8 @@ static void pack_backend__free(git_odb_backend *_backend)
 		git_mwindow_put_pack(p);
 
 	git_midx_free(backend->midx);
-	git_vector_free(&backend->midx_packs);
-	git_vector_free(&backend->packs);
+	git_vector_dispose(&backend->midx_packs);
+	git_vector_dispose(&backend->packs);
 	git__free(backend->pack_folder);
 	git__free(backend);
 }
@@ -870,7 +891,7 @@ static int pack_backend__alloc(
 	}
 
 	if (git_vector_init(&backend->packs, initial_size, packfile_sort__cb) < 0) {
-		git_vector_free(&backend->midx_packs);
+		git_vector_dispose(&backend->midx_packs);
 		git__free(backend);
 		return -1;
 	}

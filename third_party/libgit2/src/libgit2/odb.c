@@ -748,7 +748,8 @@ int git_odb__add_default_backends(
 		git_error_set(GIT_ERROR_ODB, "failed to acquire the odb lock");
 		return -1;
 	}
-	if (!db->cgraph && git_commit_graph_new(&db->cgraph, objects_dir, false) < 0) {
+	if (!db->cgraph &&
+	    git_commit_graph_new(&db->cgraph, objects_dir, false, db->options.oid_type) < 0) {
 		git_mutex_unlock(&db->lock);
 		return -1;
 	}
@@ -789,12 +790,8 @@ static int load_alternates(git_odb *odb, const char *objects_dir, int alternate_
 		if (*alternate == '\0' || *alternate == '#')
 			continue;
 
-		/*
-		 * Relative path: build based on the current `objects`
-		 * folder. However, relative paths are only allowed in
-		 * the current repository.
-		 */
-		if (*alternate == '.' && !alternate_depth) {
+		/* Relative path: build based on the current `objects` folder. */
+		if (*alternate == '.') {
 			if ((result = git_str_joinpath(&alternates_path, objects_dir, alternate)) < 0)
 				break;
 			alternate = git_str_cstr(&alternates_path);
@@ -914,7 +911,7 @@ static void odb_free(git_odb *db)
 		git_mutex_unlock(&db->lock);
 
 	git_commit_graph_free(db->cgraph);
-	git_vector_free(&db->backends);
+	git_vector_dispose(&db->backends);
 	git_cache_dispose(&db->own_cache);
 	git_mutex_free(&db->lock);
 
@@ -1493,11 +1490,16 @@ static int read_prefix_1(git_odb_object **out, git_odb *db,
 
 			if (found && git_oid__cmp(&full_oid, &found_full_oid)) {
 				git_str buf = GIT_STR_INIT;
+				const char *idstr;
 
-				git_str_printf(&buf, "multiple matches for prefix: %s",
-					git_oid_tostr_s(&full_oid));
-				git_str_printf(&buf, " %s",
-					git_oid_tostr_s(&found_full_oid));
+				if ((idstr = git_oid_tostr_s(&full_oid)) == NULL) {
+					git_str_puts(&buf, "failed to parse object id");
+				} else {
+					git_str_printf(&buf, "multiple matches for prefix: %s", idstr);
+
+					if ((idstr = git_oid_tostr_s(&found_full_oid)) != NULL)
+						git_str_printf(&buf, " %s", idstr);
+				}
 
 				error = git_odb__error_ambiguous(buf.ptr);
 				git_str_dispose(&buf);
@@ -1603,7 +1605,7 @@ int git_odb_foreach(git_odb *db, git_odb_foreach_cb cb, void *payload)
 	}
 
 cleanup:
-	git_vector_free(&backends);
+	git_vector_dispose(&backends);
 
 	return error;
 }
@@ -1790,7 +1792,8 @@ void git_odb_stream_free(git_odb_stream *stream)
 	if (stream == NULL)
 		return;
 
-	git_hash_ctx_cleanup(stream->hash_ctx);
+	if (stream->hash_ctx)
+		git_hash_ctx_cleanup(stream->hash_ctx);
 	git__free(stream->hash_ctx);
 	stream->free(stream);
 }
@@ -1916,7 +1919,7 @@ void git_odb_backend_data_free(git_odb_backend *backend, void *data)
 	git__free(data);
 }
 
-int git_odb_refresh(struct git_odb *db)
+int git_odb_refresh(git_odb *db)
 {
 	size_t i;
 	int error;

@@ -4,6 +4,7 @@
 #include "commit.h"
 #include "diff.h"
 #include "diff_generate.h"
+#include "diff_helpers.h"
 
 static git_repository *_repo;
 static git_diff_stats *_stats;
@@ -228,6 +229,26 @@ void test_diff_stats__rename_in_subdirectory(void)
 	git_buf_dispose(&buf);
 }
 
+void test_diff_stats__rename_in_subdirectory_aligns(void)
+{
+	git_buf buf = GIT_BUF_INIT;
+	const char *stat =
+	" dir/{renamed.txt => rerenamed.txt} | 0\n"
+	" file3.txt                          | 2 +-\n"
+	" 2 files changed, 1 insertion(+), 1 deletion(-)\n";
+
+	diff_stats_from_commit_oid(
+		&_stats, "7f4c6d9d6ba363e3352f7c21807ca3a7835072b2", true);
+
+	cl_assert_equal_sz(2, git_diff_stats_files_changed(_stats));
+	cl_assert_equal_sz(1, git_diff_stats_insertions(_stats));
+	cl_assert_equal_sz(1, git_diff_stats_deletions(_stats));
+
+	cl_git_pass(git_diff_stats_to_buf(&buf, _stats, GIT_DIFF_STATS_FULL, 0));
+	cl_assert_equal_s(stat, buf.ptr);
+	git_buf_dispose(&buf);
+}
+
 void test_diff_stats__rename_no_find(void)
 {
 	git_buf buf = GIT_BUF_INIT;
@@ -368,7 +389,7 @@ void test_diff_stats__new_file(void)
 	" 1 file changed, 1 insertion(+)\n"
 	" create mode 100644 Gurjeet Singh\n";
 
-	cl_git_pass(git_diff_from_buffer(&diff, input, strlen(input)));
+	cl_git_pass(diff_from_buffer(&diff, input, strlen(input)));
 	cl_git_pass(git_diff_get_stats(&_stats, diff));
 	cl_git_pass(git_diff_stats_to_buf(&buf, _stats, GIT_DIFF_STATS_FULL | GIT_DIFF_STATS_INCLUDE_SUMMARY, 0));
 	cl_assert_equal_s(stat, buf.ptr);

@@ -126,7 +126,9 @@ static void setup_race(void)
 
 	/* force a race */
 	entry->mtime.seconds = (int32_t)st.st_mtime;
+#ifdef GIT_USE_NSEC
 	entry->mtime.nanoseconds = (int32_t)st.st_mtime_nsec;
+#endif
 
 	git_str_dispose(&path);
 }
@@ -287,7 +289,7 @@ void test_index_racy__read_index_smudges(void)
 	setup_race();
 
 	cl_git_pass(git_repository_index(&index, g_repo));
-	cl_git_pass(git_index_new(&newindex));
+	cl_git_pass(git_index__new(&newindex, GIT_OID_SHA1));
 	cl_git_pass(git_index_read_index(newindex, index));
 
 	cl_assert(entry = git_index_get_bypath(newindex, "A", 0));
@@ -305,7 +307,7 @@ void test_index_racy__read_index_clears_uptodate_bit(void)
 	setup_uptodate_files();
 
 	cl_git_pass(git_repository_index(&index, g_repo));
-	cl_git_pass(git_index_new(&newindex));
+	cl_git_pass(git_index__new(&newindex, GIT_OID_SHA1));
 	cl_git_pass(git_index_read_index(newindex, index));
 
 	/* ensure that files brought in from the other index are not uptodate */

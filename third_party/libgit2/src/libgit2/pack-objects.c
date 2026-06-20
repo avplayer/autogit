@@ -11,7 +11,6 @@
 #include "zstream.h"
 #include "delta.h"
 #include "iterator.h"
-#include "netops.h"
 #include "pack.h"
 #include "thread.h"
 #include "tree.h"
@@ -64,6 +63,9 @@ struct walk_object {
 
 /* Size of the buffer to feed to zlib */
 #define COMPRESS_BUFLEN (1024 * 1024)
+
+GIT_HASHMAP_OID_FUNCTIONS(git_packbuilder_pobjectmap, GIT_HASHMAP_INLINE, git_pobject *);
+GIT_HASHMAP_OID_FUNCTIONS(git_packbuilder_walk_objectmap, GIT_HASHMAP_INLINE, struct walk_object *);
 
 static unsigned name_hash(const char *name)
 {
@@ -127,6 +129,7 @@ out:
 
 int git_packbuilder_new(git_packbuilder **out, git_repository *repo)
 {
+	git_hash_algorithm_t hash_algorithm;
 	git_packbuilder *pb;
 
 	*out = NULL;
@@ -134,15 +137,18 @@ int git_packbuilder_new(git_packbuilder **out, git_repository *repo)
 	pb = git__calloc(1, sizeof(*pb));
 	GIT_ERROR_CHECK_ALLOC(pb);
 
-	if (git_oidmap_new(&pb->object_ix) < 0 ||
-	    git_oidmap_new(&pb->walk_objects) < 0 ||
-	    git_pool_init(&pb->object_pool, sizeof(struct walk_object)) < 0)
+	pb->oid_type = repo->oid_type;
+
+	hash_algorithm = git_oid_algorithm(pb->oid_type);
+	GIT_ASSERT(hash_algorithm);
+
+	if (git_pool_init(&pb->object_pool, sizeof(struct walk_object)) < 0)
 		goto on_error;
 
 	pb->repo = repo;
 	pb->nr_threads = 1; /* do not spawn any thread by default */
 
-	if (git_hash_ctx_init(&pb->ctx, GIT_HASH_ALGORITHM_SHA1) < 0 ||
+	if (git_hash_ctx_init(&pb->ctx, hash_algorithm) < 0 ||
 		git_zstream_init(&pb->zstream, GIT_ZSTREAM_DEFLATE) < 0 ||
 		git_repository_odb(&pb->odb, repo) < 0 ||
 		packbuilder_config(pb) < 0)
@@ -187,10 +193,10 @@ static int rehash(git_packbuilder *pb)
 	git_pobject *po;
 	size_t i;
 
-	git_oidmap_clear(pb->object_ix);
+	git_packbuilder_pobjectmap_clear(&pb->object_ix);
 
 	for (i = 0, po = pb->object_list; i < pb->nr_objects; i++, po++) {
-		if (git_oidmap_set(pb->object_ix, &po->id, po) < 0)
+		if (git_packbuilder_pobjectmap_put(&pb->object_ix, &po->id, po) < 0)
 			return -1;
 	}
 
@@ -209,7 +215,7 @@ int git_packbuilder_insert(git_packbuilder *pb, const git_oid *oid,
 
 	/* If the object already exists in the hash table, then we don't
 	 * have any work to do */
-	if (git_oidmap_exists(pb->object_ix, oid))
+	if (git_packbuilder_pobjectmap_contains(&pb->object_ix, oid))
 		return 0;
 
 	if (pb->nr_objects >= pb->nr_alloc) {
@@ -241,7 +247,7 @@ int git_packbuilder_insert(git_packbuilder *pb, const git_oid *oid,
 	git_oid_cpy(&po->id, oid);
 	po->hash = name_hash(name);
 
-	if (git_oidmap_set(pb->object_ix, &po->id, po) < 0) {
+	if (git_packbuilder_pobjectmap_put(&pb->object_ix, &po->id, po) < 0) {
 		git_error_set_oom();
 		return -1;
 	}
@@ -249,10 +255,10 @@ int git_packbuilder_insert(git_packbuilder *pb, const git_oid *oid,
 	pb->done = false;
 
 	if (pb->progress_cb) {
-		double current_time = git__timer();
-		double elapsed = current_time - pb->last_progress_report_time;
+		uint64_t current_time = git_time_monotonic();
+		uint64_t elapsed = current_time - pb->last_progress_report_time;
 
-		if (elapsed < 0 || elapsed >= MIN_PROGRESS_UPDATE_INTERVAL) {
+		if (elapsed >= MIN_PROGRESS_UPDATE_INTERVAL) {
 			pb->last_progress_report_time = current_time;
 
 			ret = pb->progress_cb(
@@ -315,8 +321,10 @@ static int write_object(
 	git_object_t type;
 	unsigned char hdr[10], *zbuf = NULL;
 	void *data = NULL;
-	size_t hdr_len, zbuf_len = COMPRESS_BUFLEN, data_len;
+	size_t hdr_len, zbuf_len = COMPRESS_BUFLEN, data_len, oid_size;
 	int error;
+
+	oid_size = git_oid_size(pb->oid_type);
 
 	/*
 	 * If we have a delta base, let's use the delta to save space.
@@ -347,8 +355,8 @@ static int write_object(
 		goto done;
 
 	if (type == GIT_OBJECT_REF_DELTA) {
-		if ((error = write_cb(po->delta->id.id, GIT_OID_SHA1_SIZE, cb_data)) < 0 ||
-			(error = git_hash_update(&pb->ctx, po->delta->id.id, GIT_OID_SHA1_SIZE)) < 0)
+		if ((error = write_cb(po->delta->id.id, oid_size, cb_data)) < 0 ||
+		    (error = git_hash_update(&pb->ctx, po->delta->id.id, oid_size)) < 0)
 			goto done;
 	}
 
@@ -508,7 +516,7 @@ static int cb_tag_foreach(const char *name, git_oid *oid, void *data)
 
 	GIT_UNUSED(name);
 
-	if ((po = git_oidmap_get(pb->object_ix, oid)) == NULL)
+	if (git_packbuilder_pobjectmap_get(&po, &pb->object_ix, oid) != 0)
 		return 0;
 
 	po->tagged = 1;
@@ -668,7 +676,7 @@ static int write_pack(git_packbuilder *pb,
 	if ((error = git_hash_final(entry_oid.id, &pb->ctx)) < 0)
 		goto done;
 
-	error = write_cb(entry_oid.id, GIT_OID_SHA1_SIZE, cb_data);
+	error = write_cb(entry_oid.id, git_oid_size(pb->oid_type), cb_data);
 
 done:
 	/* if callback cancelled writing, we must still free delta_data */
@@ -925,19 +933,24 @@ static int report_delta_progress(
 {
 	int ret;
 
-	if (pb->progress_cb) {
-		double current_time = git__timer();
-		double elapsed = current_time - pb->last_progress_report_time;
+	if (pb->failure)
+		return pb->failure;
 
-		if (force || elapsed < 0 || elapsed >= MIN_PROGRESS_UPDATE_INTERVAL) {
+	if (pb->progress_cb) {
+		uint64_t current_time = git_time_monotonic();
+		uint64_t elapsed = current_time - pb->last_progress_report_time;
+
+		if (force || elapsed >= MIN_PROGRESS_UPDATE_INTERVAL) {
 			pb->last_progress_report_time = current_time;
 
 			ret = pb->progress_cb(
 				GIT_PACKBUILDER_DELTAFICATION,
 				count, pb->nr_objects, pb->progress_cb_payload);
 
-			if (ret)
+			if (ret) {
+				pb->failure = ret;
 				return git_error_set_after_callback(ret);
+			}
 		}
 	}
 
@@ -969,7 +982,10 @@ static int find_deltas(git_packbuilder *pb, git_pobject **list,
 		}
 
 		pb->nr_deltified += 1;
-		report_delta_progress(pb, pb->nr_deltified, false);
+		if ((error = report_delta_progress(pb, pb->nr_deltified, false)) < 0) {
+				GIT_ASSERT(git_packbuilder__progress_unlock(pb) == 0);
+				goto on_error;
+		}
 
 		po = *list++;
 		(*list_size)--;
@@ -1117,6 +1133,10 @@ struct thread_params {
 	size_t depth;
 	size_t working;
 	size_t data_ready;
+
+	/* A pb->progress_cb can stop the packing process by returning an error.
+	   When that happens, all threads observe the error and stop voluntarily. */
+	bool stopped;
 };
 
 static void *threaded_find_deltas(void *arg)
@@ -1126,7 +1146,12 @@ static void *threaded_find_deltas(void *arg)
 	while (me->remaining) {
 		if (find_deltas(me->pb, me->list, &me->remaining,
 				me->window, me->depth) < 0) {
-			; /* TODO */
+			me->stopped = true;
+			GIT_ASSERT_WITH_RETVAL(git_packbuilder__progress_lock(me->pb) == 0, NULL);
+			me->working = false;
+			git_cond_signal(&me->pb->progress_cond);
+			GIT_ASSERT_WITH_RETVAL(git_packbuilder__progress_unlock(me->pb) == 0, NULL);
+			return NULL;
 		}
 
 		GIT_ASSERT_WITH_RETVAL(git_packbuilder__progress_lock(me->pb) == 0, NULL);
@@ -1168,8 +1193,7 @@ static int ll_find_deltas(git_packbuilder *pb, git_pobject **list,
 		pb->nr_threads = git__online_cpus();
 
 	if (pb->nr_threads <= 1) {
-		find_deltas(pb, list, &list_size, window, depth);
-		return 0;
+		return find_deltas(pb, list, &list_size, window, depth);
 	}
 
 	p = git__mallocarray(pb->nr_threads, sizeof(*p));
@@ -1188,6 +1212,7 @@ static int ll_find_deltas(git_packbuilder *pb, git_pobject **list,
 		p[i].depth = depth;
 		p[i].working = 1;
 		p[i].data_ready = 0;
+		p[i].stopped = 0;
 
 		/* try to split chunks on "path" boundaries */
 		while (sub_size && sub_size < list_size &&
@@ -1255,7 +1280,7 @@ static int ll_find_deltas(git_packbuilder *pb, git_pobject **list,
 			    (!victim || victim->remaining < p[i].remaining))
 				victim = &p[i];
 
-		if (victim) {
+		if (victim && !target->stopped) {
 			sub_size = victim->remaining / 2;
 			list = victim->list + victim->list_size - sub_size;
 			while (sub_size && list[0]->hash &&
@@ -1279,7 +1304,7 @@ static int ll_find_deltas(git_packbuilder *pb, git_pobject **list,
 		}
 		target->list_size = sub_size;
 		target->remaining = sub_size;
-		target->working = 1;
+		target->working = 1; /* even when target->stopped, so that we don't process this thread again */
 		GIT_ASSERT(git_packbuilder__progress_unlock(pb) == 0);
 
 		if (git_mutex_lock(&target->mutex)) {
@@ -1292,7 +1317,7 @@ static int ll_find_deltas(git_packbuilder *pb, git_pobject **list,
 		git_cond_signal(&target->cond);
 		git_mutex_unlock(&target->mutex);
 
-		if (!sub_size) {
+		if (target->stopped || !sub_size) {
 			git_thread_join(&target->thread, NULL);
 			git_cond_free(&target->cond);
 			git_mutex_free(&target->mutex);
@@ -1301,7 +1326,7 @@ static int ll_find_deltas(git_packbuilder *pb, git_pobject **list,
 	}
 
 	git__free(p);
-	return 0;
+	return pb->failure;
 }
 
 #else
@@ -1312,6 +1337,7 @@ int git_packbuilder__prepare(git_packbuilder *pb)
 {
 	git_pobject **delta_list;
 	size_t i, n = 0;
+	int error;
 
 	if (pb->nr_objects == 0 || pb->done)
 		return 0; /* nothing to do */
@@ -1320,8 +1346,10 @@ int git_packbuilder__prepare(git_packbuilder *pb)
 	 * Although we do not report progress during deltafication, we
 	 * at least report that we are in the deltafication stage
 	 */
-	if (pb->progress_cb)
-			pb->progress_cb(GIT_PACKBUILDER_DELTAFICATION, 0, pb->nr_objects, pb->progress_cb_payload);
+	if (pb->progress_cb) {
+		if ((error = pb->progress_cb(GIT_PACKBUILDER_DELTAFICATION, 0, pb->nr_objects, pb->progress_cb_payload)) < 0)
+			return git_error_set_after_callback(error);
+	}
 
 	delta_list = git__mallocarray(pb->nr_objects, sizeof(*delta_list));
 	GIT_ERROR_CHECK_ALLOC(delta_list);
@@ -1338,31 +1366,33 @@ int git_packbuilder__prepare(git_packbuilder *pb)
 
 	if (n > 1) {
 		git__tsort((void **)delta_list, n, type_size_sort);
-		if (ll_find_deltas(pb, delta_list, n,
+		if ((error = ll_find_deltas(pb, delta_list, n,
 				   GIT_PACK_WINDOW + 1,
-				   GIT_PACK_DEPTH) < 0) {
+				   GIT_PACK_DEPTH)) < 0) {
 			git__free(delta_list);
-			return -1;
+			return error;
 		}
 	}
 
-	report_delta_progress(pb, pb->nr_objects, true);
+	error = report_delta_progress(pb, pb->nr_objects, true);
 
 	pb->done = true;
 	git__free(delta_list);
-	return 0;
+	return error;
 }
 
-#define PREPARE_PACK if (git_packbuilder__prepare(pb) < 0) { return -1; }
+#define PREPARE_PACK error = git_packbuilder__prepare(pb); if (error < 0) { return error; }
 
 int git_packbuilder_foreach(git_packbuilder *pb, int (*cb)(void *buf, size_t size, void *payload), void *payload)
 {
+	int error;
 	PREPARE_PACK;
 	return write_pack(pb, cb, payload);
 }
 
 int git_packbuilder__write_buf(git_str *buf, git_packbuilder *pb)
 {
+	int error;
 	PREPARE_PACK;
 
 	return write_pack(pb, &write_pack_buf, buf);
@@ -1390,7 +1420,7 @@ int git_packbuilder_write(
 	git_str object_path = GIT_STR_INIT;
 	git_indexer_options opts = GIT_INDEXER_OPTIONS_INIT;
 	git_indexer *indexer = NULL;
-	git_indexer_progress stats;
+	git_indexer_progress stats = { 0 };
 	struct pack_write_context ctx;
 	int t;
 
@@ -1407,13 +1437,12 @@ int git_packbuilder_write(
 	opts.progress_cb = progress_cb;
 	opts.progress_cb_payload = progress_cb_payload;
 
-	/* TODO: SHA256 */
-
 #ifdef GIT_EXPERIMENTAL_SHA256
 	opts.mode = mode;
 	opts.odb = pb->odb;
+	opts.oid_type = pb->oid_type;
 
-	error = git_indexer_new(&indexer, path, GIT_OID_SHA1, &opts);
+	error = git_indexer_new(&indexer, path, &opts);
 #else
 	error = git_indexer_new(&indexer, path, mode, pb->odb, &opts);
 #endif
@@ -1577,12 +1606,16 @@ static int retrieve_object(struct walk_object **out, git_packbuilder *pb, const 
 	struct walk_object *obj;
 	int error;
 
-	if ((obj = git_oidmap_get(pb->walk_objects, id)) == NULL) {
+	error = git_packbuilder_walk_objectmap_get(&obj, &pb->walk_objects, id);
+
+	if (error == GIT_ENOTFOUND) {
 		if ((error = lookup_walk_object(&obj, pb, id)) < 0)
 			return error;
 
-		if ((error = git_oidmap_set(pb->walk_objects, &obj->id, obj)) < 0)
+		if ((error = git_packbuilder_walk_objectmap_put(&pb->walk_objects, &obj->id, obj)) < 0)
 			return error;
+	} else if (error != 0) {
+		return error;
 	}
 
 	*out = obj;
@@ -1814,13 +1847,12 @@ void git_packbuilder_free(git_packbuilder *pb)
 	if (pb->odb)
 		git_odb_free(pb->odb);
 
-	if (pb->object_ix)
-		git_oidmap_free(pb->object_ix);
+	git_packbuilder_pobjectmap_dispose(&pb->object_ix);
 
 	if (pb->object_list)
 		git__free(pb->object_list);
 
-	git_oidmap_free(pb->walk_objects);
+	git_packbuilder_walk_objectmap_dispose(&pb->walk_objects);
 	git_pool_clear(&pb->object_pool);
 
 	git_hash_ctx_cleanup(&pb->ctx);

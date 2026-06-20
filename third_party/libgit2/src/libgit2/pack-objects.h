@@ -12,11 +12,10 @@
 
 #include "str.h"
 #include "hash.h"
-#include "oidmap.h"
-#include "netops.h"
 #include "zstream.h"
 #include "pool.h"
 #include "indexer.h"
+#include "hashmap_oid.h"
 
 #include "git2/oid.h"
 #include "git2/pack.h"
@@ -52,9 +51,16 @@ typedef struct git_pobject {
 	             filled:1;
 } git_pobject;
 
+typedef struct walk_object walk_object;
+
+GIT_HASHMAP_OID_STRUCT(git_packbuilder_pobjectmap, git_pobject *);
+GIT_HASHMAP_OID_STRUCT(git_packbuilder_walk_objectmap, walk_object *);
+
 struct git_packbuilder {
 	git_repository *repo; /* associated repository */
 	git_odb *odb; /* associated object database */
+
+	git_oid_t oid_type;
 
 	git_hash_ctx ctx;
 	git_zstream zstream;
@@ -68,9 +74,8 @@ struct git_packbuilder {
 
 	git_pobject *object_list;
 
-	git_oidmap *object_ix;
-
-	git_oidmap *walk_objects;
+	git_packbuilder_pobjectmap object_ix;
+	git_packbuilder_walk_objectmap walk_objects;
 	git_pool object_pool;
 
 #ifndef GIT_DEPRECATE_HARD
@@ -94,9 +99,15 @@ struct git_packbuilder {
 
 	git_packbuilder_progress progress_cb;
 	void *progress_cb_payload;
-	double last_progress_report_time; /* the time progress was last reported */
+
+	/* the time progress was last reported, in millisecond ticks */
+	uint64_t last_progress_report_time;
 
 	bool done;
+
+	/* A non-zero error code in failure causes all threads to shut themselves
+	   down. Some functions will return this error code.  */
+	volatile int failure;
 };
 
 int git_packbuilder__write_buf(git_str *buf, git_packbuilder *pb);

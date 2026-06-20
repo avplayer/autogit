@@ -6,7 +6,7 @@
 
 cmake_minimum_required(VERSION 3.5.1)
 
-project(libgit2 VERSION "1.6.4" LANGUAGES C)
+project(libgit2 VERSION "1.9.4" LANGUAGES C)
 
 # Add find modules to the path
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
@@ -19,9 +19,9 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
 option(EXPERIMENTAL_SHA256     "Enable experimental SHA256 support (for R&D/testing)"  OFF)
 
 # Optional subsystems
-option(BUILD_SHARED_LIBS       "Build Shared Library (OFF for Static)"                  OFF)
-option(BUILD_TESTS             "Build Tests using the Clar suite"                       OFF)
-option(BUILD_CLI               "Build the command-line interface"                       OFF)
+option(BUILD_SHARED_LIBS       "Build Shared Library (OFF for Static)"                  ON)
+option(BUILD_TESTS             "Build Tests using the Clar suite"                       ON)
+option(BUILD_CLI               "Build the command-line interface"                       ON)
 option(BUILD_EXAMPLES          "Build library usage example apps"                      OFF)
 option(BUILD_FUZZERS           "Build the fuzz targets"                                OFF)
 
@@ -30,13 +30,14 @@ option(USE_THREADS             "Use threads for parallel processing when possibl
 option(USE_NSEC                "Support nanosecond precision file mtimes and ctimes"    ON)
 
 # Backend selection
-option(USE_SSH                 "Link with libssh2 to enable SSH support"               ON)
-option(USE_HTTPS               "Enable HTTPS support. Can be set to a specific backend" ON)
-option(USE_SHA1                "Enable SHA1. Can be set to CollisionDetection(ON)/HTTPS" ON)
-option(USE_SHA256              "Enable SHA256. Can be set to HTTPS/Builtin" ON)
-option(USE_GSSAPI              "Link with libgssapi for SPNEGO auth"      OFF)
-   set(USE_HTTP_PARSER         "" CACHE STRING "Specifies the HTTP Parser implementation; either system or builtin.")
-   set(REGEX_BACKEND           "" CACHE STRING "Regular expression implementation. One of regcomp_l, pcre2, pcre, regcomp, or builtin.")
+   set(USE_SSH                 "" CACHE STRING "Enables SSH support and optionally selects provider. One of ON, OFF, or a specific provider: libssh2 or exec. (Defaults to OFF.)")
+   set(USE_HTTPS               "" CACHE STRING "Enable HTTPS support and optionally selects the provider. One of ON, OFF, or a specific provider: OpenSSL, OpenSSL-FIPS, OpenSSL-Dynamic, mbedTLS, SecureTransport, Schannel, or WinHTTP. (Defaults to ON.)")
+   set(USE_SHA1                "" CACHE STRING "Selects SHA1 provider. One of CollisionDetection, HTTPS, or a specific provider. (Defaults to CollisionDetection.)")
+   set(USE_SHA256              "" CACHE STRING "Selects SHA256 provider. One of Builtin, HTTPS, or a specific provider. (Defaults to HTTPS.)")
+option(USE_GSSAPI              "Enable SPNEGO authentication using GSSAPI" OFF)
+   set(USE_HTTP_PARSER         "" CACHE STRING "Selects HTTP Parser support: http-parser, llhttp, or builtin. (Defaults to builtin.)")
+#  set(USE_XDIFF               "" CACHE STRING "Specifies the xdiff implementation; either system or builtin.")
+   set(REGEX_BACKEND           "" CACHE STRING "Selects regex provider. One of regcomp_l, pcre2, pcre, regcomp, or builtin.")
 option(USE_BUNDLED_ZLIB        "Use the bundled version of zlib. Can be set to one of Bundled(ON)/Chromium. The Chromium option requires a x86_64 processor with SSE4.2 and CLMUL" OFF)
 
 # Debugging options
@@ -52,11 +53,18 @@ option(SONAME                  "Set the (SO)VERSION of the target"              
 option(DEPRECATE_HARD          "Do not include deprecated functions in the library"    OFF)
 
 # Compilation options
+# Default to c99 on Android Studio for compatibility; c90 everywhere else
+if("${CMAKE_SYSTEM_NAME}" STREQUAL "Android")
+   set(CMAKE_C_STANDARD        "99" CACHE STRING "The C standard to compile against")
+else()
+   set(CMAKE_C_STANDARD        "90" CACHE STRING "The C standard to compile against")
+endif()
+option(CMAKE_C_EXTENSIONS      "Whether compiler extensions are supported"             OFF)
 option(ENABLE_WERROR           "Enable compilation with -Werror"                       OFF)
 
 if(UNIX)
 	# NTLM client requires crypto libraries from the system HTTPS stack
-	if(NOT USE_HTTPS)
+	if(USE_HTTPS STREQUAL "OFF")
 		option(USE_NTLMCLIENT  "Enable NTLM support on Unix."                  OFF)
 	else()
 		option(USE_NTLMCLIENT  "Enable NTLM support on Unix."                   ON)
@@ -82,12 +90,6 @@ if(MSVC)
 	option(WIN32_LEAKCHECK     "Enable leak reporting via crtdbg"                  OFF)
 endif()
 
-if(WIN32)
-	# By default, libgit2 is built with WinHTTP.  To use the built-in
-	# HTTP transport, invoke CMake with the "-DUSE_WINHTTP=OFF" argument.
-	option(USE_WINHTTP         "Use Win32 WinHTTP routines"                         OFF)
-endif()
-
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
 endif()
@@ -95,11 +97,12 @@ endif()
 
 # Modules
 
+include(FeatureSummary)
 include(CheckLibraryExists)
 include(CheckFunctionExists)
 include(CheckSymbolExists)
 include(CheckStructHasMember)
-include(CheckPrototypeDefinition)
+include(CheckPrototypeDefinitionSafe)
 include(AddCFlagIfSupported)
 include(FindPkgLibraries)
 include(FindThreads)
@@ -107,7 +110,6 @@ include(FindStatNsec)
 include(Findfutimens)
 include(GNUInstallDirs)
 include(IdeSplitSources)
-include(FeatureSummary)
 include(EnableWarnings)
 include(DefaultCFlags)
 include(ExperimentalFeatures)
@@ -148,3 +150,9 @@ endif()
 
 feature_summary(WHAT ENABLED_FEATURES DESCRIPTION "Enabled features:")
 feature_summary(WHAT DISABLED_FEATURES DESCRIPTION "Disabled features:")
+
+# warn for not using sha1dc
+
+foreach(WARNING ${WARNINGS})
+	message(WARNING ${WARNING})
+endforeach()

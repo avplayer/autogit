@@ -103,10 +103,10 @@ int cl_setenv(const char *name, const char *value)
 {
 	wchar_t *wide_name, *wide_value = NULL;
 
-	cl_assert(git__utf8_to_16_alloc(&wide_name, name) >= 0);
+	cl_assert(git_utf8_to_16_alloc(&wide_name, name) >= 0);
 
 	if (value) {
-		cl_assert(git__utf8_to_16_alloc(&wide_value, value) >= 0);
+		cl_assert(git_utf8_to_16_alloc(&wide_value, value) >= 0);
 		cl_assert(SetEnvironmentVariableW(wide_name, wide_value));
 	} else {
 		/* Windows XP returns 0 (failed) when passing NULL for lpValue when
@@ -649,7 +649,7 @@ void cl_sandbox_set_homedir(const char *home)
 	if (home) {
 		git_libgit2_opts(GIT_OPT_SET_HOMEDIR, home);
 	} else {
-		git_str_joinpath(&path, clar_sandbox_path(), "__home");
+		git_str_joinpath(&path, clar_tempdir_path(), "__home");
 
 		if (!git_fs_path_exists(path.ptr))
 			cl_must_pass(p_mkdir(path.ptr, 0777));
@@ -664,7 +664,7 @@ void cl_sandbox_set_search_path_defaults(void)
 {
 	git_str path = GIT_STR_INIT;
 
-	git_str_joinpath(&path, clar_sandbox_path(), "__config");
+	git_str_joinpath(&path, clar_tempdir_path(), "__config");
 
 	if (!git_fs_path_exists(path.ptr))
 		cl_must_pass(p_mkdir(path.ptr, 0777));

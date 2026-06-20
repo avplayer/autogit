@@ -1,6 +1,7 @@
 #include "clar_libgit2.h"
 #include "git2/sys/repository.h"
 
+#include "index.h"
 #include "odb.h"
 #include "posix.h"
 #include "util.h"
@@ -55,7 +56,7 @@ void test_repo_setters__setting_a_workdir_creates_a_gitlink(void)
 
 	cl_git_pass(git_futils_readbuffer(&content, "./new_workdir/.git"));
 	cl_assert(git__prefixcmp(git_str_cstr(&content), "gitdir: ") == 0);
-	cl_assert(git__suffixcmp(git_str_cstr(&content), "testrepo.git/") == 0);
+	cl_assert(git__suffixcmp(git_str_cstr(&content), "testrepo.git/\n") == 0);
 	git_str_dispose(&content);
 
 	cl_git_pass(git_repository_config(&cfg, repo));
@@ -70,7 +71,7 @@ void test_repo_setters__setting_a_new_index_on_a_repo_which_has_already_loaded_o
 {
 	git_index *new_index;
 
-	cl_git_pass(git_index_open(&new_index, "./my-index"));
+	cl_git_pass(git_index__open(&new_index, "./my-index", GIT_OID_SHA1));
 	cl_assert(((git_refcount *)new_index)->refcount.val == 1);
 
 	git_repository_set_index(repo, new_index);

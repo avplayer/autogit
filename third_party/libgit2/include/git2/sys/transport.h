@@ -9,6 +9,7 @@
 #define INCLUDE_sys_git_transport_h
 
 #include "git2/net.h"
+#include "git2/oidarray.h"
 #include "git2/proxy.h"
 #include "git2/remote.h"
 #include "git2/strarray.h"
@@ -17,13 +18,27 @@
 
 /**
  * @file git2/sys/transport.h
- * @brief Git custom transport registration interfaces and functions
- * @defgroup git_transport Git custom transport registration
+ * @brief Custom transport registration interfaces and functions
+ * @defgroup git_transport Custom transport registration
  * @ingroup Git
+ *
+ * Callers can override the default HTTPS or SSH implementation by
+ * specifying a custom transport.
  * @{
  */
 
 GIT_BEGIN_DECL
+
+/**
+ * The negotiation state during a fetch smart transport negotiation.
+ */
+typedef struct {
+	const git_remote_head * const *refs;
+	size_t refs_len;
+	git_oid *shallow_roots;
+	size_t shallow_roots_len;
+	int depth;
+} git_fetch_negotiation;
 
 struct git_transport {
 	unsigned int version; /**< The struct version */
@@ -96,8 +111,17 @@ struct git_transport {
 	int GIT_CALLBACK(negotiate_fetch)(
 		git_transport *transport,
 		git_repository *repo,
-		const git_remote_head * const *refs,
-		size_t count);
+		const git_fetch_negotiation *fetch_data);
+
+	/**
+	 * Return the shallow roots of the remote.
+	 *
+	 * This function may be called after a successful call to
+	 * `negotiate_fetch`.
+	 */
+	int GIT_CALLBACK(shallow_roots)(
+		git_oidarray *out,
+		git_transport *transport);
 
 	/**
 	 * Start downloading the packfile from the remote repository.
@@ -128,7 +152,10 @@ struct git_transport {
 	void GIT_CALLBACK(free)(git_transport *transport);
 };
 
+/** Current version for the `git_transport` structure */
 #define GIT_TRANSPORT_VERSION 1
+
+/** Static constructor for `git_transport` */
 #define GIT_TRANSPORT_INIT {GIT_TRANSPORT_VERSION}
 
 /**
@@ -179,7 +206,7 @@ GIT_EXTERN(int) git_transport_ssh_with_paths(git_transport **out, git_remote *ow
  * and git_transport_unregister with other calls to the library that
  * instantiate transports.
  *
- * @param prefix The scheme (ending in "://") to match, i.e. "git://"
+ * @param prefix The scheme to match, eg "git" or "https"
  * @param cb The callback used to create an instance of the transport
  * @param param A fixed parameter to pass to cb at creation time
  * @return 0 or an error code
@@ -281,6 +308,7 @@ GIT_EXTERN(int) git_transport_smart_credentials(git_credential **out, git_transp
  *
  * @param out options struct to fill
  * @param transport the transport to extract the data from.
+ * @return 0 on success, or an error code
  */
 GIT_EXTERN(int) git_transport_remote_connect_options(
 		git_remote_connect_options *out,
@@ -368,7 +396,14 @@ struct git_smart_subtransport {
 	void GIT_CALLBACK(free)(git_smart_subtransport *transport);
 };
 
-/** A function which creates a new subtransport for the smart transport */
+/**
+ * A function that creates a new subtransport for the smart transport
+ *
+ * @param out the smart subtransport
+ * @param owner the transport owner
+ * @param param the input parameter
+ * @return 0 on success, or an error code
+ */
 typedef int GIT_CALLBACK(git_smart_subtransport_cb)(
 	git_smart_subtransport **out,
 	git_transport *owner,
@@ -411,6 +446,7 @@ typedef struct git_smart_subtransport_definition {
  *
  * @param out The newly created subtransport
  * @param owner The smart transport to own this subtransport
+ * @param param custom parameters for the subtransport
  * @return 0 or an error code
  */
 GIT_EXTERN(int) git_smart_subtransport_http(
@@ -423,6 +459,7 @@ GIT_EXTERN(int) git_smart_subtransport_http(
  *
  * @param out The newly created subtransport
  * @param owner The smart transport to own this subtransport
+ * @param param custom parameters for the subtransport
  * @return 0 or an error code
  */
 GIT_EXTERN(int) git_smart_subtransport_git(
@@ -435,6 +472,7 @@ GIT_EXTERN(int) git_smart_subtransport_git(
  *
  * @param out The newly created subtransport
  * @param owner The smart transport to own this subtransport
+ * @param param custom parameters for the subtransport
  * @return 0 or an error code
  */
 GIT_EXTERN(int) git_smart_subtransport_ssh(
@@ -444,4 +482,5 @@ GIT_EXTERN(int) git_smart_subtransport_ssh(
 
 /** @} */
 GIT_END_DECL
+
 #endif

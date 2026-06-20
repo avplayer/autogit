@@ -12,6 +12,7 @@
 #include "git2/submodule.h"
 #include "git2/repository.h"
 #include "futils.h"
+#include "hashmap.h"
 
 /* Notes:
  *
@@ -69,9 +70,9 @@
  * - `repo` is the parent repository that contains this submodule.
  * - `flags` after for internal use, tracking where this submodule has been
  *   found (head, index, config, workdir) and known status info, etc.
- * - `head_oid` is the SHA1 for the submodule path in the repo HEAD.
- * - `index_oid` is the SHA1 for the submodule recorded in the index.
- * - `wd_oid` is the SHA1 for the HEAD of the checked out submodule.
+ * - `head_oid` is the oid for the submodule path in the repo HEAD.
+ * - `index_oid` is the oid for the submodule recorded in the index.
+ * - `wd_oid` is the oid for the HEAD of the checked out submodule.
  *
  * If the submodule has been added to .gitmodules but not yet git added,
  * then the `index_oid` will be zero but still marked valid.  If the
@@ -116,15 +117,17 @@ enum {
 #define GIT_SUBMODULE_STATUS__CLEAR_INTERNAL(S) \
 	((S) & ~(0xFFFFFFFFu << 20))
 
+GIT_HASHMAP_STR_STRUCT(git_submodule_cache, git_submodule *);
+
 /* Initialize an external submodule cache for the provided repo. */
-extern int git_submodule_cache_init(git_strmap **out, git_repository *repo);
+extern int git_submodule_cache_init(git_submodule_cache **out, git_repository *repo);
 
 /* Release the resources of the submodule cache. */
-extern int git_submodule_cache_free(git_strmap *cache);
+extern int git_submodule_cache_free(git_submodule_cache *cache);
 
 /* Submodule lookup with an explicit cache */
 extern int git_submodule__lookup_with_cache(
-	git_submodule **out, git_repository *repo, const char *path, git_strmap *cache);
+	git_submodule **out, git_repository *repo, const char *path, git_submodule_cache *cache);
 
 /* Internal status fn returns status and optionally the various OIDs */
 extern int git_submodule__status(
@@ -144,10 +147,6 @@ extern int git_submodule_parse_ignore(
 	git_submodule_ignore_t *out, const char *value);
 extern int git_submodule_parse_update(
 	git_submodule_update_t *out, const char *value);
-
-extern int git_submodule__map(
-	git_repository *repo,
-	git_strmap *map);
 
 /**
  * Check whether a submodule's name is valid.

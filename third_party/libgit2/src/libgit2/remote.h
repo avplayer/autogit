@@ -38,6 +38,7 @@ struct git_remote {
 	git_remote_autotag_option_t download_tags;
 	int prune_refs;
 	int passed_refspecs;
+	git_fetch_negotiation nego;
 };
 
 int git_remote__urlfordirection(git_str *url_out, struct git_remote *remote, int direction, const git_remote_callbacks *callbacks);
@@ -57,7 +58,6 @@ int git_remote_connect_options_normalize(
 	const git_remote_connect_options *src);
 
 int git_remote_capabilities(unsigned int *out, git_remote *remote);
-int git_remote_oid_type(git_oid_t *out, git_remote *remote);
 
 
 #define git_remote_connect_options__copy_opts(out, in) \
